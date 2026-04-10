@@ -31,8 +31,9 @@ function getAllInstances() {
 // Pick instance by contact index (round-robin)
 function getInstance(contactIndex = 0) {
   const instances = getAllInstances();
-  const picked = instances[contactIndex % instances.length];
-  console.log(`[INSTANCE] contact #${contactIndex + 1} → ${picked.instanceId} (1 of ${instances.length} instances)`);
+  const index = contactIndex % instances.length;
+  const picked = instances[index];
+  console.log(`[INSTANCE_SELECT] contactIndex=${contactIndex}, instances.length=${instances.length}, using index=${index} → ${picked.instanceId}`);
   return picked;
 }
 

@@ -128,7 +128,7 @@ export default function NewCampaign() {
   // AI Enhance
   async function handleEnhance() {
     if (!messageText.trim()) {
-      toast.error('Write a message first')
+      toast.error('Write a message first to use AI Enhance')
       return
     }
     try {

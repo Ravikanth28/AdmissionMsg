@@ -86,7 +86,7 @@ export default function ComposeStep({
         <div className="glass rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <label className="text-sm font-medium text-dark-300">
-              Message Content <span className="text-red-400">*</span>
+              Message Content <span className="text-dark-500">(optional)</span>
             </label>
             <div className="flex items-center gap-2 flex-wrap">
               <button
@@ -304,7 +304,7 @@ export default function ComposeStep({
         {/* Next button */}
         <button
           onClick={onNext}
-          disabled={!messageText.trim()}
+          disabled={!messageText.trim() && mediaFiles.length === 0}
           className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-brand-500/20"
         >
           Continue to Review
