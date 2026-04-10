@@ -1,11 +1,39 @@
 const axios = require('axios');
 
-function getUltraConfig() {
-  return {
-    instanceId: process.env.ULTRAMSG_INSTANCE_ID,
-    token: process.env.ULTRAMSG_TOKEN,
-    baseUrl: `https://api.ultramsg.com/${process.env.ULTRAMSG_INSTANCE_ID}`,
-  };
+// Parse all configured UltraMsg instances.
+// Supports multiple instances via comma-separated env vars:
+//   ULTRAMSG_INSTANCE_IDS=inst1,inst2,inst3
+//   ULTRAMSG_TOKENS=token1,token2,token3
+// Single-instance legacy vars still work:
+//   ULTRAMSG_INSTANCE_ID=inst1  ULTRAMSG_TOKEN=token1
+function getAllInstances() {
+  const ids = process.env.ULTRAMSG_INSTANCE_IDS
+    ? process.env.ULTRAMSG_INSTANCE_IDS.split(',').map(s => s.trim()).filter(Boolean)
+    : process.env.ULTRAMSG_INSTANCE_ID
+    ? [process.env.ULTRAMSG_INSTANCE_ID.trim()]
+    : [];
+
+  const tokens = process.env.ULTRAMSG_TOKENS
+    ? process.env.ULTRAMSG_TOKENS.split(',').map(s => s.trim()).filter(Boolean)
+    : process.env.ULTRAMSG_TOKEN
+    ? [process.env.ULTRAMSG_TOKEN.trim()]
+    : [];
+
+  if (ids.length === 0) throw new Error('No UltraMsg instances configured');
+
+  return ids.map((instanceId, i) => ({
+    instanceId,
+    token: tokens[i] || tokens[0],
+    baseUrl: `https://api.ultramsg.com/${instanceId}`,
+  }));
+}
+
+// Pick instance by contact index (round-robin)
+function getInstance(contactIndex = 0) {
+  const instances = getAllInstances();
+  const picked = instances[contactIndex % instances.length];
+  console.log(`[INSTANCE] contact #${contactIndex + 1} → ${picked.instanceId} (1 of ${instances.length} instances)`);
+  return picked;
 }
 
 function extractMsg(val) {
@@ -24,8 +52,8 @@ function checkUltraResponse(data, type) {
   return data;
 }
 
-async function sendTextMessage(to, text) {
-  const { baseUrl, token } = getUltraConfig();
+async function sendTextMessage(to, text, contactIndex = 0) {
+  const { baseUrl, token } = getInstance(contactIndex);
   const response = await axios.post(
     `${baseUrl}/messages/chat`,
     { token, to, body: text },
@@ -34,8 +62,8 @@ async function sendTextMessage(to, text) {
   return checkUltraResponse(response.data, 'text');
 }
 
-async function sendImageMessage(to, imageUrl, caption = '') {
-  const { baseUrl, token } = getUltraConfig();
+async function sendImageMessage(to, imageUrl, caption = '', contactIndex = 0) {
+  const { baseUrl, token } = getInstance(contactIndex);
   const response = await axios.post(
     `${baseUrl}/messages/image`,
     { token, to, image: imageUrl, caption },
@@ -44,8 +72,8 @@ async function sendImageMessage(to, imageUrl, caption = '') {
   return checkUltraResponse(response.data, 'image');
 }
 
-async function sendVideoMessage(to, videoUrl, caption = '') {
-  const { baseUrl, token } = getUltraConfig();
+async function sendVideoMessage(to, videoUrl, caption = '', contactIndex = 0) {
+  const { baseUrl, token } = getInstance(contactIndex);
   const response = await axios.post(
     `${baseUrl}/messages/video`,
     { token, to, video: videoUrl, caption },
@@ -54,8 +82,8 @@ async function sendVideoMessage(to, videoUrl, caption = '') {
   return checkUltraResponse(response.data, 'video');
 }
 
-async function sendDocumentMessage(to, docUrl, filename = 'document') {
-  const { baseUrl, token } = getUltraConfig();
+async function sendDocumentMessage(to, docUrl, filename = 'document', contactIndex = 0) {
+  const { baseUrl, token } = getInstance(contactIndex);
   const response = await axios.post(
     `${baseUrl}/messages/document`,
     { token, to, document: docUrl, filename },
@@ -64,7 +92,7 @@ async function sendDocumentMessage(to, docUrl, filename = 'document') {
   return checkUltraResponse(response.data, 'document');
 }
 
-async function sendCampaignMessage(to, messageText, mediaFiles = []) {
+async function sendCampaignMessage(to, messageText, mediaFiles = [], contactIndex = 0) {
   const results = [];
   const errors = [];
 
@@ -74,27 +102,24 @@ async function sendCampaignMessage(to, messageText, mediaFiles = []) {
     if (firstImage) {
       console.log(`[SEND] image+caption → ${to} | url: ${firstImage.cloudinary_url}`);
       try {
-        const result = await sendImageMessage(to, firstImage.cloudinary_url, messageText);
+        const result = await sendImageMessage(to, firstImage.cloudinary_url, messageText, contactIndex);
         results.push({ type: 'image+text', success: true, data: result });
       } catch (e) {
         console.error(`[SEND ERR] image+caption → ${to} | ${e.message}`);
-        // fall back to plain text
         console.log(`[SEND] text (fallback) → ${to}`);
-        const result = await sendTextMessage(to, messageText);
+        const result = await sendTextMessage(to, messageText, contactIndex);
         results.push({ type: 'text', success: true, data: result });
         errors.push(`image caption failed (${e.message}), sent text only`);
       }
     } else {
       console.log(`[SEND] text → ${to}`);
-      // This throw is intentional – if text itself fails, mark contact failed
-      const result = await sendTextMessage(to, messageText);
+      const result = await sendTextMessage(to, messageText, contactIndex);
       results.push({ type: 'text', success: true, data: result });
     }
   }
 
-  // Send remaining media files — each with its own try/catch so one failure doesn't block others
+  // Send remaining media — each with its own try/catch
   for (const media of mediaFiles) {
-    // Skip the first image already sent as caption above
     if (media.media_type === 'image' && messageText && media === mediaFiles.find(m => m.media_type === 'image')) {
       continue;
     }
@@ -102,30 +127,28 @@ async function sendCampaignMessage(to, messageText, mediaFiles = []) {
     try {
       if (media.media_type === 'image') {
         console.log(`[SEND] image → ${to} | url: ${media.cloudinary_url}`);
-        const result = await sendImageMessage(to, media.cloudinary_url);
+        const result = await sendImageMessage(to, media.cloudinary_url, '', contactIndex);
         results.push({ type: 'image', success: true, data: result });
       } else if (media.media_type === 'video') {
         console.log(`[SEND] video → ${to} | url: ${media.cloudinary_url}`);
-        const result = await sendVideoMessage(to, media.cloudinary_url);
+        const result = await sendVideoMessage(to, media.cloudinary_url, '', contactIndex);
         results.push({ type: 'video', success: true, data: result });
       } else {
         console.log(`[SEND] ${media.media_type} → ${to} | url: ${media.cloudinary_url} | file: ${media.file_name}`);
-        const result = await sendDocumentMessage(to, media.cloudinary_url, media.file_name);
+        const result = await sendDocumentMessage(to, media.cloudinary_url, media.file_name, contactIndex);
         results.push({ type: media.media_type, success: true, data: result });
       }
     } catch (e) {
-      console.error(`[SEND ERR] ${media.media_type} → ${to} | file: ${media.file_name} | url: ${media.cloudinary_url} | error: ${e.message}`);
+      console.error(`[SEND ERR] ${media.media_type} → ${to} | file: ${media.file_name} | error: ${e.message}`);
       errors.push(`${media.media_type} "${media.file_name}" failed: ${e.message}`);
       results.push({ type: media.media_type, success: false, error: e.message, file: media.file_name });
     }
   }
 
-  // If every attempt failed, propagate a combined error
   if (results.length > 0 && results.every(r => !r.success)) {
     throw new Error(errors.join('; '));
   }
 
-  // Attach partial errors to results so caller can log them
   if (errors.length) results._warnings = errors;
   return results;
 }

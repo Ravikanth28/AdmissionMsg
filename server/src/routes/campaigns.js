@@ -260,6 +260,7 @@ async function startBatchSending(campaign, contacts, media, reportId) {
 
   let sentCount = 0;
   let failedCount = 0;
+  let contactIndex = 0; // global index across all batches for round-robin instance selection
 
   try {
     for (let i = 0; i < contacts.length; i += batchSize) {
@@ -290,7 +291,7 @@ async function startBatchSending(campaign, contacts, media, reportId) {
           const personalised = campaign.message_text
             ? campaign.message_text.replace(/\{\{name\}\}/gi, contact.name || 'Student')
             : campaign.message_text;
-          const results = await sendCampaignMessage(contact.phone, personalised, media);
+          const results = await sendCampaignMessage(contact.phone, personalised, media, contactIndex);
           sentCount++;
           const warnings = results._warnings;
           if (warnings && warnings.length) {
@@ -320,6 +321,8 @@ async function startBatchSending(campaign, contacts, media, reportId) {
           'UPDATE campaigns SET sent_count = ?, failed_count = ? WHERE id = ?',
           [sentCount, failedCount, campaign.id]
         );
+
+        contactIndex++; // advance round-robin index regardless of success/failure
 
         // Small delay between individual messages (skip for single contact)
         if (!isSingle) await wait(2000);
