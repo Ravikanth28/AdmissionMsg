@@ -92,6 +92,23 @@ async function sendDocumentMessage(to, docUrl, filename = 'document', contactInd
   return checkUltraResponse(response.data, 'document');
 }
 
+async function isOnWhatsApp(to, contactIndex = 0) {
+  const { baseUrl, token } = getInstance(contactIndex);
+  const chatId = to.replace(/\D/g, '') + '@c.us';
+  try {
+    const response = await axios.get(`${baseUrl}/contacts/check`, {
+      params: { token, chatId },
+    });
+    const data = response.data;
+    // UltraMsg returns { status: "valid" } or { status: "invalid" }
+    return data && (data.status === 'valid' || data.numberExists === true || data.onWhatsapp === true);
+  } catch (e) {
+    console.error(`[CHECK] could not verify ${to}: ${e.message}`);
+    // On check error, allow sending (don't block on API errors)
+    return true;
+  }
+}
+
 async function sendCampaignMessage(to, messageText, mediaFiles = [], contactIndex = 0) {
   const results = [];
   const errors = [];
@@ -153,4 +170,4 @@ async function sendCampaignMessage(to, messageText, mediaFiles = [], contactInde
   return results;
 }
 
-module.exports = { sendTextMessage, sendImageMessage, sendVideoMessage, sendDocumentMessage, sendCampaignMessage };
+module.exports = { sendTextMessage, sendImageMessage, sendVideoMessage, sendDocumentMessage, sendCampaignMessage, isOnWhatsApp };

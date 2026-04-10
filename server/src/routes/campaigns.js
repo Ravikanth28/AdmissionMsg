@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { getPool } = require('../config/database');
-const { sendCampaignMessage } = require('../config/whatsapp');
+const { sendCampaignMessage, isOnWhatsApp } = require('../config/whatsapp');
 
 // Active sending processes
 const activeSenders = new Map();
@@ -288,6 +288,24 @@ async function startBatchSending(campaign, contacts, media, reportId) {
         if (sender.stopped) break;
 
         try {
+          // Validate the number is on WhatsApp before sending
+          const onWhatsApp = await isOnWhatsApp(contact.phone, contactIndex);
+          if (!onWhatsApp) {
+            failedCount++;
+            console.error(`[INVALID] +${contact.phone} (${contact.name || 'unknown'}) — not a WhatsApp number`);
+            await db.execute(
+              'UPDATE contacts SET status = ?, error_message = ? WHERE id = ?',
+              ['failed', 'Not a valid WhatsApp number', contact.id]
+            );
+            await db.execute(
+              'UPDATE campaigns SET sent_count = ?, failed_count = ? WHERE id = ?',
+              [sentCount, failedCount, campaign.id]
+            );
+            contactIndex++;
+            if (!isSingle) await wait(2000);
+            continue;
+          }
+
           const personalised = campaign.message_text
             ? campaign.message_text.replace(/\{\{name\}\}/gi, contact.name || 'Student')
             : campaign.message_text;
